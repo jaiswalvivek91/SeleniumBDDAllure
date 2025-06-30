@@ -1,0 +1,75 @@
+stages:
+  - test
+  - report
+  - deploy
+
+variables:
+  ALLURE_RESULTS_DIR: "${CI_PROJECT_DIR}/allure-results"
+  ALLURE_REPORTS_DIR: "${CI_PROJECT_DIR}/public/allure-reports"
+
+before_script:
+  - echo "Job: $CI_JOB_NAME"
+
+test:
+  stage: test
+  image: maven:3.9.3-openjdk-17
+  script:
+    - rm -rf $ALLURE_RESULTS_DIR
+    - mkdir -p $ALLURE_RESULTS_DIR
+    - mvn clean test
+  artifacts:
+    paths:
+      - allure-results
+    expire_in: 1 week
+
+generate_report:
+  stage: report
+  image:
+    name: allureframework/allure:2.21.0
+    entrypoint: [""]
+  dependencies:
+    - test
+  script:
+    - mkdir -p $ALLURE_REPORTS_DIR
+    - export TS=$(date +"%Y%m%d%H%M%S")
+    - REPORT_DIR="$ALLURE_REPORTS_DIR/$TS"
+    - allure generate allure-results --clean -o $REPORT_DIR
+
+    # Clean old reports, keep last 50 only
+    - cd $ALLURE_REPORTS_DIR
+    - ls -dt */ | tail -n +51 | xargs -r rm -rf --
+
+    # Generate index.html with links to reports
+    - echo "<html><head><title>Allure Reports</title></head><body><h1>Last 50 Allure Reports</h1><ul>" > index.html
+    - for d in $(ls -dt */); do echo "<li><a href=\"$d/index.html\">$d</a></li>"; done >> index.html
+    - echo "</ul></body></html>" >> index.html
+
+  artifacts:
+    paths:
+      - public/allure-reports/
+    expire_in: 1 month
+
+deploy_pages:
+  stage: deploy
+  dependencies:
+    - generate_report
+  script:
+    - echo "Deploying Allure reports to GitLab Pages"
+  artifacts:
+    paths:
+      - public
+  only:
+    - main
+    - master
+    - merge_requests
+
+pages:
+  stage: deploy
+  script:
+    - echo "Deploying GitLab Pages"
+  artifacts:
+    paths:
+      - public
+  only:
+    - main
+    - master
